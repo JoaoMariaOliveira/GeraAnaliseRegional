@@ -91,6 +91,7 @@ sSheetNational='BR'
 sFileStates= 'TabelaEstados.xlsx'
 sFileShock='Choque.xlsx'
 lRelativAbsolut=True
+lChockOfferDemand = 0 # 0 = demand ; 1 = Offer ;  2= both
 
 if __name__ == '__main__':
 
@@ -115,7 +116,7 @@ if __name__ == '__main__':
     vLaborRestriction = Support.load_OfferShock(sDirectoryInput, sFileShock, "Oferta", nSectors, nAdjustUni)
 
     mDemandShockReg = np.tile(mDemandShock, (nStates, nStates))
-
+    vLaborRestrictionReg = np.tile(vLaborRestriction, nStates).reshape(nStates*nSectors, order='F')
     vNameSectorReg = [[], []]
     for s in range(nStates):
         for e in range(nSectors):
@@ -217,25 +218,57 @@ if __name__ == '__main__':
     vFinalDemandRegNorm=np.sum(mDemandReg, axis=1)
     vVBPNormReg = np.dot(mLeontief, vFinalDemandRegNorm)
 
-    # Aplicando o choque da demanda
-    mDemandRegShock = mDemandReg * mDemandShockReg
+    if (lChockOfferDemand == 0) or (lChockOfferDemand == 2):
+        # Aplicando o choque da demanda
+        if lRelativAbsolut:
+            mDemandRegShock = mDemandReg * mDemandShockReg
+        else:
+            mDemandRegShock = mDemandReg + mDemandShockReg
 
-    # Calculando o VBP do choque
-    vFinalDemandRegShock=np.sum(mDemandRegShock, axis=1)
-    vVBPShockDemandReg = np.dot(mLeontief, vFinalDemandRegShock)
+        # Calculando o VBP do choque
+        vFinalDemandRegShock=np.sum(mDemandRegShock, axis=1)
+        vVBPShockReg = np.dot(mLeontief, vFinalDemandRegShock)
 
-    # Calculando o impacto do choque sobre o VBP
-    vDeltaShockDemandReg = vVBPShockDemandReg - vVBPNormReg
-    vImpactVBP        = vDeltaShockDemandReg / vVBPNormReg
+        # Calculando o impacto do choque sobre o VBP
+        vDeltaShockReg = vVBPShockReg - vVBPNormReg
+        vImpactVBP     = vDeltaShockReg / vVBPNormReg
+
+    if (lChockOfferDemand== 1) or (lChockOfferDemand== 2):
+        if lRelativAbsolut:
+            vLaborShock = vOccReg * vLaborRestrictionReg
+        else:
+            vLaborShock = vOccReg + vLaborRestrictionReg
+       # Calculando o VBP do choque
+        x = vLaborShock/vVBPReg
+        mABarr = np.zeros([nStatesSectors, nStatesSectors], dtype=float)
+        mZBarr = np.zeros([nStatesSectors, nStatesSectors], dtype=float)
+        for j in range(nStatesSectors):
+            mZBarr[:, j] = mZ[:, j] * vLaborRestrictionReg[j]
+            mABarr[:, j] = mZBarr[:, j] / vTotalProduction[0, j]
+
+        mLeontiefBarr = np.linalg.inv(mI - mABarr)
+        vVBPShockReg = np.dot(mLeontiefBarr, vFinalDemandRegNorm)
+
+        # Calculando o impacto do choque sobre o VBP
+        vDeltaShockReg = vVBPShockReg - vVBPNormReg
+        vImpactVBP     = vDeltaShockReg / vVBPNormReg
+
+    if (lChockOfferDemand == 2):
+        vVBPShockReg = np.dot(mLeontiefBarr, vFinalDemandRegShock)
+        vDeltaShockReg = vVBPShockReg - vVBPNormReg
+        vImpactVBP     = vDeltaShockReg / vVBPNormReg
+
+
+
 
     # CaLculando o impacto do choque
-    vDeltaVAReg    = vV_VAReg * vDeltaShockDemandReg
-    vDeltaEOBReg   = vV_EOBReg * vDeltaShockDemandReg
-    vDeltaRMBReg   = vV_RMBReg * vDeltaShockDemandReg
-    vDeltaWagesReg = vV_WagesReg * vDeltaShockDemandReg
-    vDeltaOccReg   = vV_OccReg * vDeltaShockDemandReg
+    vDeltaVAReg    = vV_VAReg * vDeltaShockReg
+    vDeltaEOBReg   = vV_EOBReg * vDeltaShockReg
+    vDeltaRMBReg   = vV_RMBReg * vDeltaShockReg
+    vDeltaWagesReg = vV_WagesReg * vDeltaShockReg
+    vDeltaOccReg   = vV_OccReg * vDeltaShockReg
 
-    mResultsNat[1, 0]   = np.sum(vDeltaShockDemandReg)
+    mResultsNat[1, 0]   = np.sum(vDeltaShockReg)
     mResultsNat[1, 1]   = np.sum(vDeltaVAReg)
     mResultsNat[1, 2]   = np.sum(vDeltaEOBReg)
     mResultsNat[1, 3]   = np.sum(vDeltaRMBReg)
@@ -250,7 +283,7 @@ if __name__ == '__main__':
         mResultsReg[s, 0, 4] = np.sum(vWagesReg[s*nSectors:(s+1)*nSectors])
         mResultsReg[s, 0, 5] = np.sum(vOccReg[s*nSectors:(s+1)*nSectors])
 
-        mResultsReg[s, 1, 0] = np.sum(vDeltaShockDemandReg[s*nSectors:(s+1)*nSectors])
+        mResultsReg[s, 1, 0] = np.sum(vDeltaShockReg[s*nSectors:(s+1)*nSectors])
         mResultsReg[s, 1, 1] = np.sum(vDeltaVAReg[s*nSectors:(s+1)*nSectors])
         mResultsReg[s, 1, 2] = np.sum(vDeltaEOBReg[s*nSectors:(s+1)*nSectors])
         mResultsReg[s, 1, 3] = np.sum(vDeltaRMBReg[s*nSectors:(s+1)*nSectors])
